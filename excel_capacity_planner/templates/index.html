@@ -16,7 +16,7 @@
   <main class="grid">
     <section class="card">
       <h2>1. Management Zone</h2>
-      <div class="field"><label for="dataSource">Data source</label><select id="dataSource"><option value="mock" selected>Mock Excel Data</option><option value="excel">Upload Excel</option><option value="live">Dynatrace (Live)</option></select></div>
+      <div class="field"><label for="dataSource">Data source</label><select id="dataSource"><option value="mock" selected>Mock Excel Data</option><option value="excel">Upload Excel</option><option value="zip">Upload ZIP</option><option value="live">Dynatrace (Live)</option></select></div>
       <div id="dynatraceConfig" class="source-panel" hidden>
         <div class="field"><label for="tenantUrl">Dynatrace Tenant URL</label><input type="text" id="tenantUrl" placeholder="https://&lt;environment-id&gt;.live.dynatrace.com"></div>
         <div class="field"><label for="accessToken">Access Token</label><input type="password" id="accessToken" placeholder="Dynatrace API access token"></div>
@@ -25,6 +25,10 @@
       <div id="excelConfig" class="source-panel" hidden>
         <div class="field"><label for="excelFile">Upload Excel dataset</label><input type="file" id="excelFile" accept=".xlsx,.xls"></div>
         <div class="upload-row"><button type="button" id="uploadBtn" class="secondary-btn">Load Excel Data</button><a class="download-link compact" href="/sample-data">⬇ Download Mock Excel Data</a></div><div id="uploadStatus" class="hint muted"></div>
+      </div>
+      <div id="zipConfig" class="source-panel" hidden>
+        <div class="field"><label for="zipFile">Upload ZIP dataset</label><input type="file" id="zipFile" accept=".zip"></div>
+        <div class="upload-row"><button type="button" id="zipUploadBtn" class="secondary-btn">Load ZIP Data</button></div><div id="zipUploadStatus" class="hint muted"></div>
       </div>
       <div class="field" id="zoneSearchWrap"><label for="zoneSearch">Search management zone</label><input type="text" id="zoneSearch" placeholder="Start typing a management zone..." autocomplete="off"><div id="zoneResults" class="autocomplete-results"></div></div>
       <div id="selectedZone" class="selected-pill" hidden>Selected Zone: <strong id="selectedZoneName">—</strong><button type="button" id="clearZone" class="link-btn">change</button></div>
@@ -39,12 +43,12 @@
     </section>
     <section class="card card-wide">
       <h2>3. What-If: Traffic Growth Simulation</h2>
-      <p class="hint">Drag the slider to model a change in service request volume. Historical data (solid line), baseline forecast (dashed, muted), and growth-simulated forecast (dashed, orange) update together.</p>
+      <p class="hint">Drag the slider to model a change in workload volume. Historical data (solid line), baseline forecast (dashed, muted), and growth-simulated forecast (dashed, orange) update together.</p>
       <div class="slider-row"><input type="range" id="growthSlider" min="-50" max="200" step="5" value="0"><span id="growthValue" class="growth-value">+0%</span></div>
       <div class="scenario-presets"><button type="button" class="scenario-btn" data-growth="-20">-20%</button><button type="button" class="scenario-btn active" data-growth="0">Baseline</button><button type="button" class="scenario-btn" data-growth="10">+10%</button><button type="button" class="scenario-btn" data-growth="25">+25%</button><button type="button" class="scenario-btn" data-growth="50">+50%</button></div>
       <div id="kpiGrid" class="kpi-grid"></div><div id="simStatus" class="hint muted"></div>
       <div id="chartGrid" class="chart-grid"><div class="chart-panel"><canvas id="chart-host_cpu_usage"></canvas></div><div class="chart-panel"><canvas id="chart-host_mem_usage"></canvas></div><div class="chart-panel"><canvas id="chart-service_request_count"></canvas></div><div class="chart-panel"><canvas id="chart-service_response_time"></canvas></div></div>
-      <div class="application-view"><div class="application-view-header"><h3>Selected Application Capacity View</h3><span id="applicationCount" class="muted"></span></div><div class="table-wrap"><table id="applicationTable"><thead><tr><th>Application</th><th>Avg Requests</th><th>Avg Response</th><th>Forecast Requests</th><th>Forecast Response</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="application-view"><div class="application-view-header"><h3>Selected Application Capacity View</h3><span id="applicationCount" class="muted"></span></div><div class="table-wrap"><table id="applicationTable"><thead><tr><th>Application</th><th>Avg Workload</th><th>Avg Performance</th><th>Forecast Workload</th><th>Forecast Performance</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>
     </section>
     <section class="card card-wide">
       <h2>4. Generate Report</h2>
