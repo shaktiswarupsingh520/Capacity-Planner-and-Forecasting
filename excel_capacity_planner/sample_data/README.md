@@ -1,0 +1,1 @@
+The Flask app generates `mock_telemetry_3_years.xlsx` on demand from the **Download Mock 3-Year Excel** button. The synthetic workbook contains three years of daily CPU, memory and disk utilization for eight hosts with trend, weekly seasonality and noise. It is not production telemetry.
