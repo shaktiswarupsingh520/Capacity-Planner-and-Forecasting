@@ -5,6 +5,7 @@
   const source = $('dataSource');
   const dtConfig = $('dynatraceConfig');
   const excelConfig = $('excelConfig');
+  const zipConfig = $('zipConfig');
   const tenantUrl = $('tenantUrl');
   const accessToken = $('accessToken');
   const connectBtn = $('connectBtn');
@@ -12,6 +13,9 @@
   const excelFile = $('excelFile');
   const uploadBtn = $('uploadBtn');
   const uploadStatus = $('uploadStatus');
+  const zipFile = $('zipFile');
+  const zipUploadBtn = $('zipUploadBtn');
+  const zipUploadStatus = $('zipUploadStatus');
   const zoneSearch = $('zoneSearch');
   const zoneSearchWrap = $('zoneSearchWrap');
   const zoneResults = $('zoneResults');
@@ -43,7 +47,6 @@
   let sourceReady = false;
 
   const keys = ['host_cpu_usage', 'host_mem_usage', 'service_request_count', 'service_response_time'];
-  const labels = {host_cpu_usage: 'CPU', host_mem_usage: 'Memory', service_request_count: 'Requests / day', service_response_time: 'Response time'};
 
   function apiJson(url, options) {
     return fetch(url, options).then(async response => {
@@ -57,6 +60,7 @@
     const value = source.value;
     dtConfig.hidden = value !== 'live';
     excelConfig.hidden = value !== 'excel';
+    zipConfig.hidden = value !== 'zip';
     zoneSearchWrap.hidden = value !== 'live';
     zoneSearch.hidden = false;
     zoneResults.innerHTML = '';
@@ -74,6 +78,9 @@
     } else if (value === 'excel') {
       sourceHint.textContent = 'Upload the Excel template to load application-wise telemetry. Then select one application.';
       status.textContent = 'Upload an Excel dataset to begin.';
+    } else if (value === 'zip') {
+      sourceHint.textContent = 'Upload a ZIP export. The application list is derived from the entity names in the uploaded data.';
+      status.textContent = 'Upload a ZIP dataset to begin.';
     } else {
       sourceHint.textContent = 'Connect to Dynatrace, select a management zone, then select an application/service.';
       zoneName.textContent = 'Dynatrace — connect to load management zones';
@@ -97,13 +104,12 @@
   function loadApplications() {
     if (!sourceId) return;
     const params = new URLSearchParams({source_id: sourceId});
-    if (currentZone) { params.set('management_zone', currentZone); params.set('hist_from', from.value); params.set('hist_to', to.value); }
+    if (currentZone && source.value === 'live') {
+      params.set('management_zone', currentZone);
+      params.set('hist_from', from.value);
+      params.set('hist_to', to.value);
+    }
     apiJson('/api/applications?' + params.toString()).then(data => populateApplications(data.applications)).catch(e => status.textContent = e.message);
-  }
-
-  function loadMock() {
-    if (!sourceId || !currentApplication) return;
-    loadData();
   }
 
   function loadData() {
@@ -135,8 +141,14 @@
   function risk(k, value) {
     if (value == null) return 'No data';
     if (k === 'host_cpu_usage' || k === 'host_mem_usage') return value >= 95 ? 'Critical' : value >= 85 ? 'High risk' : value >= 70 ? 'Watch' : 'Healthy';
-    if (k === 'service_response_time') return value >= 1000 ? 'Critical' : value >= 500 ? 'High risk' : value >= 250 ? 'Watch' : 'Healthy';
+    if (k === 'service_response_time' && bundle?.metrics?.service_response_time?.unit === 'ms') return value >= 1000 ? 'Critical' : value >= 500 ? 'High risk' : value >= 250 ? 'Watch' : 'Healthy';
     return 'Informational';
+  }
+
+  function fmt(v, unit) {
+    if (v == null || !Number.isFinite(Number(v))) return 'No data';
+    const decimals = unit === '%' ? 1 : unit === 'Count' ? 0 : 1;
+    return Number(v).toLocaleString(undefined, {maximumFractionDigits: decimals});
   }
 
   function apply(g) {
@@ -145,31 +157,37 @@
     document.querySelectorAll('.scenario-btn').forEach(b => b.classList.toggle('active', +b.dataset.growth === g));
     const sf = 1 + g / 100; let html = ''; const parts = [];
     keys.forEach(k => {
-      const p = bundle.metrics[k], ch = charts[k], elasticity = k === 'service_response_time' ? 1.15 : 1, cap = p.cap;
+      const p = bundle.metrics[k], ch = charts[k], elasticity = k === 'service_response_time' && p.unit === 'ms' ? 1.15 : 1, cap = p.cap;
       const scale = value => cap ? Math.min(cap, value * sf ** elasticity) : value * sf ** elasticity;
       if (ch) { ch.data.datasets[4].data = ch.data.datasets[3].data.map(v => v == null ? null : scale(v)); ch.update('none'); }
       const values = (p.historical || []).slice(-14).map(x => x.v); const current = values.length ? values.reduce((a,b) => a+b,0)/values.length : null; const projected = current == null ? null : scale(current); const r = risk(k, projected);
-      html += `<article class="kpi-card risk-${r.toLowerCase().replace(' ', '-')}"><div class="kpi-label">${labels[k]}</div><div class="kpi-values"><strong>${projected == null ? 'No data' : projected.toLocaleString(undefined, {maximumFractionDigits: k === 'service_request_count' ? 0 : 1})} ${p.unit}</strong><span>from ${current == null ? 'No data' : current.toLocaleString(undefined, {maximumFractionDigits: k === 'service_request_count' ? 0 : 1})} ${p.unit}</span></div><div class="kpi-meta"><span>${r}</span><span>${current ? ((projected-current)/current*100).toFixed(1)+'%' : ''}</span></div></article>`;
-      parts.push(labels[k] + ' ' + (current == null ? '—' : current.toFixed(1)) + ' → ' + (projected == null ? '—' : projected.toFixed(1)));
+      html += `<article class="kpi-card risk-${r.toLowerCase().replace(' ', '-')}"><div class="kpi-label">${escapeHtml(p.label || k)}</div><div class="kpi-values"><strong>${fmt(projected,p.unit)} ${projected == null ? '' : escapeHtml(p.unit)}</strong><span>from ${fmt(current,p.unit)} ${current == null ? '' : escapeHtml(p.unit)}</span></div><div class="kpi-meta"><span>${r}</span><span>${current ? ((projected-current)/current*100).toFixed(1)+'%' : ''}</span></div></article>`;
+      parts.push((p.label || k) + ' ' + (current == null ? '—' : fmt(current,p.unit)) + ' → ' + (projected == null ? '—' : fmt(projected,p.unit)));
     });
     kpis.innerHTML = html; status.textContent = currentApplication + ' — ' + parts.join('   |   '); renderApplications(g);
   }
 
   function renderApplications(g) {
     const apps = bundle.applications || [];
+    const wl = bundle.summary?.workload_label || 'Workload';
+    const pl = bundle.summary?.performance_label || 'Performance';
     appCount.textContent = apps.length + ' application(s) — selected only';
+    document.querySelector('#applicationTable thead th:nth-child(2)').textContent = 'Avg ' + wl;
+    document.querySelector('#applicationTable thead th:nth-child(3)').textContent = 'Avg ' + pl;
+    document.querySelector('#applicationTable thead th:nth-child(4)').textContent = 'Forecast ' + wl;
+    document.querySelector('#applicationTable thead th:nth-child(5)').textContent = 'Forecast ' + pl;
     appTable.innerHTML = '';
     apps.forEach(row => {
-      const requestForecast = row.request_forecast * (1 + g / 100), responseForecast = row.response_forecast * (1 + g / 100) ** 1.15;
-      const statusText = responseForecast >= 500 ? 'At Risk' : responseForecast >= 250 ? 'Watch' : 'Normal';
+      const requestForecast = row.request_forecast * (1 + g / 100), responseForecast = row.response_forecast * (1 + g / 100) ** (bundle.metrics.service_response_time.unit === 'ms' ? 1.15 : 1);
+      const performanceUnit = bundle.metrics.service_response_time.unit || '';
+      const statusText = responseForecast >= 500 && performanceUnit === 'ms' ? 'At Risk' : responseForecast >= 250 && performanceUnit === 'ms' ? 'Watch' : 'Normal';
       const statusClass = statusText === 'At Risk' ? 'app-risk' : statusText === 'Watch' ? 'app-watch' : 'app-normal';
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${escapeHtml(row.application)}</td><td>${formatNumber(row.requests_avg)}</td><td>${formatNumber(row.response_avg, 1)} ms</td><td>${formatNumber(requestForecast)}</td><td>${formatNumber(responseForecast, 1)} ms</td><td><span class="app-status ${statusClass}">${statusText}</span></td>`;
+      tr.innerHTML = `<td>${escapeHtml(row.application)}</td><td>${fmt(row.requests_avg,bundle.metrics.service_request_count.unit)}</td><td>${fmt(row.response_avg,performanceUnit)}</td><td>${fmt(requestForecast,bundle.metrics.service_request_count.unit)}</td><td>${fmt(responseForecast,performanceUnit)}</td><td><span class="app-status ${statusClass}">${statusText}</span></td>`;
       appTable.appendChild(tr);
     });
   }
 
-  function formatNumber(v, decimals = 0) { return Number(v || 0).toLocaleString(undefined, {maximumFractionDigits: decimals}); }
   function escapeHtml(value) { return String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
 
   function searchZones() {
@@ -199,6 +217,12 @@
     const file=excelFile.files[0]; if(!file){uploadStatus.textContent='Choose an Excel file first.';return;}
     const form=new FormData(); form.append('excel_file',file); uploadStatus.textContent='Reading Excel and validating the dataset...'; uploadBtn.disabled=true;
     apiJson('/api/upload-excel',{method:'POST',body:form}).then(data=>{sourceId=data.source_id;sourceReady=true;currentZone=data.management_zone;zoneName.textContent=currentZone;zoneSearch.value='';from.value=data.from;to.value=data.to;uploadStatus.textContent=`Loaded ${data.rows.toLocaleString()} rows across ${data.applications.length} application(s).`;populateApplications(data.applications);}).catch(e=>{uploadStatus.textContent=e.message;sourceReady=false;}).finally(()=>uploadBtn.disabled=false);
+  };
+
+  zipUploadBtn.onclick = () => {
+    const file=zipFile.files[0]; if(!file){zipUploadStatus.textContent='Choose a ZIP file first.';return;}
+    const form=new FormData(); form.append('zip_file',file); zipUploadStatus.textContent='Reading ZIP and building application groups...'; zipUploadBtn.disabled=true;
+    apiJson('/api/upload-zip',{method:'POST',body:form}).then(data=>{sourceId=data.source_id;sourceReady=true;currentZone=data.management_zone;from.value=data.from;to.value=data.to;zipUploadStatus.textContent=`Loaded ${data.files} metric files and ${data.rows.toLocaleString()} normalized rows across ${data.applications.length} application group(s).`;populateApplications(data.applications);}).catch(e=>{zipUploadStatus.textContent=e.message;sourceReady=false;}).finally(()=>zipUploadBtn.disabled=false);
   };
 
   clearZone.onclick=()=>{zoneSearch.hidden=false;selectedZone.hidden=false;currentApplication='';applicationSelect.innerHTML='<option value="">Select an application...</option>';applicationSelect.disabled=true;zoneSearch.focus();};
