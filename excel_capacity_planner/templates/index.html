@@ -5,17 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dynatrace Capacity &amp; Performance Report</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    .workflow-note,.explain-panel,.capacity-summary{background:#f8fafc;border:1px solid #e1e5ea;border-radius:8px;padding:11px 13px}
+    .workflow-note{display:flex;flex-direction:column;gap:5px;margin-top:16px;font-size:12px;color:#6b7280}
+    .workflow-note strong,.explain-panel strong{color:#1f4e79}.explain-panel{margin-bottom:14px;font-size:12px;line-height:1.45}.explain-panel p{margin:5px 0}
+    .slider-label{min-width:105px}.kpi-current{font-size:10px;color:#6b7280;margin-top:6px}
+    .capacity-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.capacity-head h3{margin:0;color:#1f4e79;font-size:14px}.capacity-head p{margin:4px 0 0;color:#6b7280;font-size:12px}
+    .capacity-status{font-weight:700;font-size:12px;color:#1f6b2b;background:#eaf6ec;padding:5px 9px;border-radius:999px;white-space:nowrap}
+    .capacity-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}.capacity-grid div{background:#fff;border:1px solid #e1e5ea;border-radius:6px;padding:8px}.capacity-grid span{display:block;color:#6b7280;font-size:10px}.capacity-grid strong{display:block;color:#1f4e79;font-size:16px;margin-top:3px}.capacity-note{font-size:11px;color:#6b7280;line-height:1.45;margin:6px 0}
+    @media(max-width:800px){.capacity-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:420px){.capacity-grid{grid-template-columns:1fr}}
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="app">
   <header class="app-header">
     <h1>Dynatrace Capacity &amp; Performance Report</h1>
-    <p class="subtitle">Select an application, model a request-growth scenario, and generate a report.</p>
+    <p class="subtitle">Analyse historical application health, forecast future resource usage, test workload scenarios, and identify available capacity headroom.</p>
   </header>
   <main class="grid">
     <section class="card">
-      <h2>1. Management Zone</h2>
+      <h2>1. Data Source &amp; Application</h2>
       <div class="field"><label for="dataSource">Data source</label><select id="dataSource"><option value="mock" selected>Mock Excel Data</option><option value="excel">Upload Excel</option><option value="zip">Upload ZIP</option><option value="live">Dynatrace (Live)</option></select></div>
       <div id="dynatraceConfig" class="source-panel" hidden>
         <div class="field"><label for="tenantUrl">Dynatrace Tenant URL</label><input type="text" id="tenantUrl" placeholder="https://&lt;environment-id&gt;.live.dynatrace.com"></div>
@@ -36,22 +46,33 @@
       <div id="selectedApplication" class="selected-pill" hidden>Selected Application: <strong id="selectedApplicationName">—</strong></div>
       <div id="sourceHint" class="hint muted">Loading application list...</div>
     </section>
+
     <section class="card">
-      <h2>2. Date Ranges</h2>
+      <h2>2. Analysis Period</h2>
       <div class="field-row"><div class="field"><label for="histFrom">Historical data — from</label><input type="date" id="histFrom" value="{{ default_from }}"></div><div class="field"><label for="histTo">Historical data — to</label><input type="date" id="histTo" value="{{ default_to }}"></div></div>
       <div class="field"><label for="forecastMonths">Forecast horizon</label><select id="forecastMonths"><option value="1">1 month</option><option value="2">2 months</option><option value="3" selected>3 months</option><option value="6">6 months</option><option value="12">12 months</option></select></div>
+      <div class="workflow-note"><strong>Analysis flow</strong><span>Historical baseline → Forecast → Workload scenario → Capacity impact → Headroom → Recommendation</span></div>
     </section>
+
     <section class="card card-wide">
-      <h2>3. What-If: Traffic Growth Simulation</h2>
-      <p class="hint">Drag the slider to model a change in workload volume. Historical data (solid line), baseline forecast (dashed, muted), and growth-simulated forecast (dashed, orange) update together.</p>
-      <div class="slider-row"><input type="range" id="growthSlider" min="-50" max="200" step="5" value="0"><span id="growthValue" class="growth-value">+0%</span></div>
-      <div class="scenario-presets"><button type="button" class="scenario-btn" data-growth="-20">-20%</button><button type="button" class="scenario-btn active" data-growth="0">Baseline</button><button type="button" class="scenario-btn" data-growth="10">+10%</button><button type="button" class="scenario-btn" data-growth="25">+25%</button><button type="button" class="scenario-btn" data-growth="50">+50%</button></div>
-      <div id="kpiGrid" class="kpi-grid"></div><div id="simStatus" class="hint muted"></div>
+      <h2>3. Capacity What-If Analysis</h2>
+      <div class="explain-panel">
+        <strong>What does this simulation do?</strong>
+        <p>The selected workload is increased or decreased by the scenario percentage. The engine uses historical workload-to-resource relationships where the data supports them. It does <strong>not</strong> blindly multiply CPU or memory by the selected percentage.</p>
+        <p id="workloadExplanation">The workload definition will be shown after an application is selected.</p>
+      </div>
+      <div class="slider-row"><label for="growthSlider" class="slider-label">Workload change</label><input type="range" id="growthSlider" min="-50" max="200" step="5" value="0"><span id="growthValue" class="growth-value">+0%</span></div>
+      <div class="scenario-presets"><button type="button" class="scenario-btn" data-growth="-20">-20%</button><button type="button" class="scenario-btn active" data-growth="0">Baseline</button><button type="button" class="scenario-btn" data-growth="10">+10%</button><button type="button" class="scenario-btn" data-growth="25">+25%</button><button type="button" class="scenario-btn" data-growth="50">+50%</button><button type="button" class="scenario-btn" data-growth="100">+100%</button></div>
+      <div id="kpiGrid" class="kpi-grid"></div>
+      <div id="capacitySummary" class="capacity-summary"></div>
+      <div id="simStatus" class="hint muted"></div>
       <div id="chartGrid" class="chart-grid"><div class="chart-panel"><canvas id="chart-host_cpu_usage"></canvas></div><div class="chart-panel"><canvas id="chart-host_mem_usage"></canvas></div><div class="chart-panel"><canvas id="chart-service_request_count"></canvas></div><div class="chart-panel"><canvas id="chart-service_response_time"></canvas></div></div>
-      <div class="application-view"><div class="application-view-header"><h3>Selected Application Capacity View</h3><span id="applicationCount" class="muted"></span></div><div class="table-wrap"><table id="applicationTable"><thead><tr><th>Application</th><th>Avg Workload</th><th>Avg Performance</th><th>Forecast Workload</th><th>Forecast Performance</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>
+      <div class="application-view"><div class="application-view-header"><h3>Selected Application Capacity View</h3><span id="applicationCount" class="muted"></span></div><div class="table-wrap"><table id="applicationTable"><thead><tr><th>Application</th><th>Recent Workload</th><th>Recent Performance</th><th>Scenario Workload</th><th>Scenario Performance</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>
     </section>
+
     <section class="card card-wide">
       <h2>4. Generate Report</h2>
+      <p class="hint">The PDF uses the same selected application, forecast horizon, scenario and capacity interpretation shown above.</p>
       <div class="field-row"><div class="field"><label for="companyName">Company name</label><input type="text" id="companyName" value="{{ company_name }}"></div><div class="field"><label for="reportTitle">Report title</label><input type="text" id="reportTitle" value="{{ report_title }}"></div></div>
       <div class="field"><label>Formats</label><label class="checkbox"><input type="checkbox" id="fmtPdf" checked> PDF</label></div>
       <button type="button" id="generateBtn" class="primary-btn">Generate Report</button><div id="generateStatus" class="hint muted"></div><div id="downloadArea" class="download-area"></div><a class="download-link" href="/sample-data">⬇ Download Mock Excel Data</a>
