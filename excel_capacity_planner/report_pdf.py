@@ -7,52 +7,51 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle,getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Image,PageBreak,Paragraph,SimpleDocTemplate,Spacer,Table,TableStyle
-NAVY=colors.HexColor("#1f4e79");ORANGE=colors.HexColor("#c55a11");RED=colors.HexColor("#c00000");LIGHT=colors.HexColor("#f2f2f2")
-def chart(m,path):
- fig,ax=plt.subplots(figsize=(8,3),dpi=150);h,f=m["historical"],m["forecast"]
- ax.plot([p["t"] for p in h],[p["v"] for p in h],label="Historical");ax.plot([p["t"] for p in f],[p["v"] for p in f],"--",label="Forecast")
- if m["lower"] and m["upper"]:ax.fill_between([p["t"] for p in f],[p["v"] for p in m["lower"]],[p["v"] for p in m["upper"]],alpha=.15,label="95% confidence band")
- if m["cap"]:ax.axhline(m["cap"]*.8,linestyle=":",alpha=.6,label="80% threshold")
- ax.set_title(f"{m['label']} — Trend & Forecast",fontsize=10,fontweight="bold");ax.grid(alpha=.2);ax.legend(fontsize=7,loc="upper left",frameon=False);ax.xaxis.set_major_locator(mdates.AutoDateLocator());ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"));fig.autofmt_xdate();fig.tight_layout();fig.savefig(path,bbox_inches="tight");plt.close(fig)
-def styles():
- s=getSampleStyleSheet();s.add(ParagraphStyle("TitleX",parent=s["Title"],fontSize=26,textColor=NAVY));s.add(ParagraphStyle("H1X",parent=s["Heading1"],textColor=NAVY,spaceBefore=18,spaceAfter=8));s.add(ParagraphStyle("H2X",parent=s["Heading2"],textColor=ORANGE,spaceBefore=12,spaceAfter=6));s.add(ParagraphStyle("BodyX",parent=s["BodyText"],fontSize=10,leading=14));s.add(ParagraphStyle("Cell",parent=s["BodyText"],fontSize=8.2,leading=10));s.add(ParagraphStyle("CellW",parent=s["BodyText"],fontSize=8.2,leading=10,textColor=colors.white));return s
+NAVY=colors.HexColor('#1f4e79');ORANGE=colors.HexColor('#c55a11');LIGHT=colors.HexColor('#f2f2f2')
 def fmt(v,u):
- if v is None:return "N/A"
- if u=="%":return f"{v:,.1f}%"
- if u=="Count":return f"{v:,.0f}"
- if u=="Rate":return f"{v:,.2f}"
- if u=="BytePerSecond":return f"{v/1e6:,.2f} MB/s" if v>=1e6 else f"{v:,.0f} B/s"
- if u=="ms":return f"{v:,.2f} ms"
- return f"{v:,.2f}"
-def table(rows,widths,color=NAVY):
- t=Table(rows,colWidths=widths,repeatRows=1);t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),color),("TEXTCOLOR",(0,0),(-1,0),colors.white),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,LIGHT]),("GRID",(0,0),(-1,-1),.35,colors.lightgrey),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]));return t
+ if v is None:return 'N/A'
+ v=float(v)
+ if u=='%':return f'{v:,.1f}%'
+ if u=='Count':return f'{v:,.0f}'
+ if u=='Rate':return f'{v:,.1f}'
+ if u=='BytePerSecond':return f'{v/1e6:,.1f} MB/s' if v>=1e6 else f'{v:,.0f} B/s'
+ if u=='ms':return f'{v:,.1f} ms'
+ return f'{v:,.1f}'
+def styles():
+ s=getSampleStyleSheet();s.add(ParagraphStyle('TitleX',parent=s['Title'],fontSize=26,textColor=NAVY));s.add(ParagraphStyle('H1X',parent=s['Heading1'],textColor=NAVY,spaceBefore=18,spaceAfter=8));s.add(ParagraphStyle('H2X',parent=s['Heading2'],textColor=ORANGE,spaceBefore=12,spaceAfter=6));s.add(ParagraphStyle('BodyX',parent=s['BodyText'],fontSize=10,leading=14));s.add(ParagraphStyle('Cell',parent=s['BodyText'],fontSize=8.2,leading=10));s.add(ParagraphStyle('CellW',parent=s['BodyText'],fontSize=8.2,leading=10,textColor=colors.white));return s
+def table(rows,widths):
+ t=Table(rows,colWidths=widths,repeatRows=1);t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),NAVY),('TEXTCOLOR',(0,0),(-1,0),colors.white),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,LIGHT]),('GRID',(0,0),(-1,-1),.35,colors.lightgrey),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5)]));return t
+def chart(m,path):
+ fig,ax=plt.subplots(figsize=(8,3),dpi=150);h,f=m.get('historical',[]),m.get('forecast',[])
+ if h:ax.plot([p['t'] for p in h],[p['v'] for p in h],label='Historical')
+ if f:ax.plot([p['t'] for p in f],[p['v'] for p in f],'--',label='Forecast')
+ if m.get('lower') and m.get('upper'):ax.fill_between([p['t'] for p in f],[p['v'] for p in m['lower']],[p['v'] for p in m['upper']],alpha=.15,label='95% confidence band')
+ if m.get('cap'):ax.axhline(m['cap']*.8,linestyle=':',alpha=.6,label='80% threshold')
+ ax.set_title(f"{m['label']} — Trend & Forecast",fontsize=10,fontweight='bold');ax.grid(alpha=.2);ax.legend(fontsize=7,loc='upper left',frameon=False);ax.xaxis.set_major_locator(mdates.AutoDateLocator());ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'));fig.autofmt_xdate();fig.tight_layout();fig.savefig(path,bbox_inches='tight');plt.close(fig)
 def build_pdf_report(path,company,title,a):
- s=styles();doc=SimpleDocTemplate(path,pagesize=LETTER,leftMargin=.7*inch,rightMargin=.7*inch,topMargin=.75*inch,bottomMargin=.65*inch,title=title,author=company);story=[];sel=a["application"];summary=a["summary"];conf=summary.get("model_confidence","Not assessed")
- story += [Spacer(1,1.2*inch),Paragraph(title,s["TitleX"]),Paragraph(f"Selected Application: <b>{sel}</b>",s["BodyX"]),Paragraph(f"Management Zone / Dataset: <b>{a['management_zone']}</b>",s["BodyX"]),Spacer(1,6),Paragraph(f"Assessment Period: {summary['from']} – {summary['to']} | Forecast Horizon: {summary['forecast_days']} days",s["BodyX"]),Spacer(1,1.8*inch),Paragraph(company,s["H2X"]),Paragraph(f"Generated by Capacity Planner — {summary.get('data_source_label','Uploaded Data')}",s["BodyX"]),PageBreak()]
- inc=sum(v["direction"]=="increasing" for v in a["trends"].values());dec=sum(v["direction"]=="decreasing" for v in a["trends"].values());flat=len(a["trends"])-inc-dec
- story += [Paragraph("Executive Summary",s["H1X"]),Paragraph(f"The selected <b>{sel}</b> application/group is analysed using daily historical observations and a forecast horizon of <b>{summary['forecast_days']} days</b>. {inc} metrics show increasing recent-window behaviour, {dec} decreasing, and {flat} stable/insufficient. Workload-driven simulation confidence is <b>{conf}</b>.",s["BodyX"]),Spacer(1,8)]
- rows=[[Paragraph(x,s["CellW"]) for x in ["Metric","Category","Direction","Recent change","Current","Forecast model"]]]
- for k,m in a["metrics"].items():
-  t=a["trends"][k];arrow="▲" if t["direction"]=="increasing" else "▼" if t["direction"]=="decreasing" else "■";chg="N/A" if t["change"] is None else f"{t['change']:.1f}%";model=m.get("model",{}).get("model","N/A");rows.append([Paragraph(m["label"],s["Cell"]),Paragraph(m["category"],s["Cell"]),Paragraph(f"{arrow} {t['direction'].title()}",s["Cell"]),Paragraph(chg,s["Cell"]),Paragraph(fmt(t["end"],m["unit"]),s["Cell"]),Paragraph(model,s["Cell"])])
- story += [table(rows,[1.5*inch,1*inch,1*inch,.85*inch,1*inch,1.1*inch]),PageBreak()]
- for idx,k in enumerate(["host_cpu_usage","host_mem_usage","host_disk_used_pct","network_traffic"]):
-  if idx%2==0:story.append(Paragraph("Infrastructure Metrics",s["H1X"]))
-  m,t=a["metrics"][k],a["trends"][k];tmp=f"/tmp/{os.path.basename(path)}_{k}.png"
-  if m["historical"]:
-   chart(m,tmp);chg="N/A" if t["change"] is None else f"{t['change']:.1f}%";story += [Paragraph(m["label"],s["H2X"]),Image(tmp,width=6.5*inch,height=2.3*inch),Paragraph(f"Average {fmt(t['mean'],m['unit'])}; current {fmt(t['end'],m['unit'])}. Recent-window change {chg}. Model: <b>{m.get('model',{}).get('model','N/A')}</b>, confidence {m.get('model',{}).get('confidence','N/A')}.",s["BodyX"])]
-  else:story += [Paragraph(m["label"],s["H2X"]),Paragraph("No data was supplied for this metric by the selected data source/application group.",s["BodyX"])]
+ s=styles();doc=SimpleDocTemplate(path,pagesize=LETTER,leftMargin=.7*inch,rightMargin=.7*inch,topMargin=.75*inch,bottomMargin=.65*inch,title=title,author=company);story=[];sel=a['application'];summary=a['summary'];conf=summary.get('model_confidence','Not assessed')
+ story += [Spacer(1,1.2*inch),Paragraph(title,s['TitleX']),Paragraph(f'Selected Application: <b>{sel}</b>',s['BodyX']),Paragraph(f"Management Zone / Dataset: <b>{a['management_zone']}</b>",s['BodyX']),Spacer(1,6),Paragraph(f"Assessment Period: {summary['from']} – {summary['to']} | Forecast Horizon: {summary['forecast_days']} days",s['BodyX']),Spacer(1,1.6*inch),Paragraph(company,s['H2X']),Paragraph(f"Generated by Capacity Planner — {summary.get('data_source_label','Uploaded Data')}",s['BodyX']),PageBreak()]
+ story += [Paragraph('Executive Summary',s['H1X']),Paragraph(f"The selected <b>{sel}</b> is evaluated in six steps: historical baseline, future forecast, workload scenario, capacity impact, resource headroom and planning recommendation. Forecast confidence is <b>{conf}</b>.",s['BodyX']),Spacer(1,8)]
+ semantic=(f"Workload driver: <b>{summary.get('workload_label','HTTP Request Volume')}</b>. Performance metric: <b>{summary.get('performance_label','Response Time')}</b>." if summary.get('has_http_requests') else f"Workload driver: <b>{summary.get('workload_label','Workload proxy')}</b>. Performance/resource metric: <b>{summary.get('performance_label','JVM Threads')}</b>. The uploaded dataset does not contain HTTP request volume or response-time measurements.")
+ story += [Paragraph(semantic,s['BodyX']),Spacer(1,8)]
+ rows=[[Paragraph(x,s['CellW']) for x in ['Metric','Category','Recent change','Current','Forecast','Model']]]
+ for k,m in a['metrics'].items():
+  t=a['trends'][k];chg='N/A' if t['change'] is None else f"{t['change']:.1f}%";model=m.get('model',{}).get('model','N/A');rows.append([Paragraph(m['label'],s['Cell']),Paragraph(m['category'],s['Cell']),Paragraph(chg,s['Cell']),Paragraph(fmt(t['end'],m['unit']),s['Cell']),Paragraph(fmt(m['forecast'][-1]['v'] if m['forecast'] else None,m['unit']),s['Cell']),Paragraph(model,s['Cell'])])
+ story += [table(rows,[1.55*inch,1*inch,.85*inch,1*inch,1*inch,1.1*inch]),PageBreak(),Paragraph('Capacity Headroom',s['H1X'])]
+ h=summary.get('headroom',{});fe=summary.get('forecast_endpoint',{});rows=[[Paragraph(x,s['CellW']) for x in ['Resource','Forecast utilization','Available headroom']]]
+ for k,label in [('host_cpu_usage','CPU'),('host_mem_usage','Memory'),('host_disk_used_pct','Disk')]:rows.append([Paragraph(label,s['Cell']),Paragraph(fmt(fe.get(k),'%'),s['Cell']),Paragraph(fmt(h.get(k),'%'),s['Cell'])])
+ story += [table(rows,[2*inch,2*inch,2*inch]),Spacer(1,10),Paragraph('Headroom is calculated as 100% minus forecast utilization for bounded utilization metrics. It is a planning indicator, not a vendor-specific capacity limit.',s['BodyX']),PageBreak()]
+ for idx,k in enumerate(['host_cpu_usage','host_mem_usage','host_disk_used_pct','network_traffic']):
+  m=a['metrics'][k];t=a['trends'][k];tmp=f'/tmp/{os.path.basename(path)}_{k}.png';story.append(Paragraph(m['label'],s['H2X']))
+  if m['historical']:
+   chart(m,tmp);chg='N/A' if t['change'] is None else f'{t["change"]:.1f}%';story += [Image(tmp,width=6.5*inch,height=2.3*inch),Paragraph(f"Current {fmt(t['end'],m['unit'])}; forecast {fmt(m['forecast'][-1]['v'] if m['forecast'] else None,m['unit'])}; recent-window change {chg}; model {m.get('model',{}).get('model','N/A')} with {m.get('model',{}).get('confidence','N/A')} confidence.",s['BodyX'])]
+  else:story.append(Paragraph('No data was supplied for this metric by the selected data source/application.',s['BodyX']))
   if idx in (1,3):story.append(PageBreak())
- story += [Paragraph("Application-wise Capacity View",s["H1X"]),Paragraph(f"Workload is represented by <b>{summary.get('workload_label','Workload')}</b>. This client ZIP does not contain HTTP request-count or response-time metrics. Therefore the report does not relabel session activity as requests or JVM threads as response time. JVM Threads are shown as a concurrency/resource metric.",s["BodyX"]),Spacer(1,8)]
- rows=[[Paragraph(x,s["CellW"]) for x in ["Application","Avg Workload","Avg JVM Threads","Forecast Workload","Forecast JVM Threads","Status"]]]
- for r in a["application_table"]:rows.append([Paragraph(str(r["application"]),s["Cell"]),Paragraph(fmt(r["requests_avg"],"Rate"),s["Cell"]),Paragraph(fmt(r["response_avg"],"Count"),s["Cell"]),Paragraph(fmt(r["request_forecast"],"Rate"),s["Cell"]),Paragraph(fmt(r["response_forecast"],"Count"),s["Cell"]),Paragraph(str(r["status"]),s["Cell"])])
- story += [table(rows,[1.5*inch,1*inch,1*inch,1.1*inch,1.15*inch,.75*inch]),PageBreak(),Paragraph("Workload & JVM Metrics",s["H1X"])]
- for k in ["service_request_count","service_response_time"]:
-  m=a["metrics"][k];t=a["trends"][k];tmp=f"/tmp/{os.path.basename(path)}_{k}.png"
-  if m["historical"]:chart(m,tmp);story += [Paragraph(m["label"],s["H2X"]),Image(tmp,width=6.5*inch,height=2.4*inch),Paragraph(f"Average {fmt(t['mean'],m['unit'])}; current {fmt(t['end'],m['unit'])}. Forecast model: <b>{m.get('model',{}).get('model','N/A')}</b>, confidence {m.get('model',{}).get('confidence','N/A')}.",s["BodyX"])]
-  else:story += [Paragraph(m["label"],s["H2X"]),Paragraph("No data was supplied.",s["BodyX"])]
- story.append(PageBreak());story += [Paragraph("Problem Correlation Analysis",s["H1X"]),Paragraph("No problem records were included in the uploaded ZIP export.",s["BodyX"]),PageBreak()]
- story += [Paragraph("Capacity Planning Recommendations",s["H1X"]),Paragraph("Forecast method",s["H2X"]),Paragraph("The engine aggregates the client export daily, parses percentages and engineering suffixes, limits extreme outliers, evaluates recent-median, Holt-Winters and trend models on a holdout period, selects the lowest-error model, and clips forecasts to physically meaningful non-negative bounds.",s["BodyX"]),Spacer(1,8),Paragraph("What-If Capacity Simulation",s["H2X"]),Paragraph(f"The selected scenario is <b>{a['growth']:+.0f}%</b> against the New Session Rate workload proxy. The proxy should not be interpreted as HTTP request volume. Resource metrics are changed only when the historical data demonstrates a positive workload/resource relationship. If that relationship is not supported, the engine deliberately keeps the baseline forecast instead of multiplying resources by the growth percentage. Current simulation confidence: <b>{conf}</b>.",s["BodyX"])]
- rows=[[Paragraph(x,s["CellW"]) for x in ["Growth","CPU Forecast","Memory Forecast","Disk Forecast"]]]
- for x in a["scenarios"]:rows.append([Paragraph(f"{x['growth']:+.0f}%",s["Cell"]),Paragraph(fmt(x["cpu"],"%"),s["Cell"]),Paragraph(fmt(x["memory"],"%"),s["Cell"]),Paragraph(fmt(x["disk"],"%"),s["Cell"])])
- story += [Spacer(1,8),table(rows,[1.2*inch,1.25*inch,1.35*inch,1.2*inch]),Spacer(1,14),Paragraph("Recommendation",s["H2X"]),Paragraph(f"• {sel} — {a['recommendations'][0]['action']}",s["BodyX"])]
+ story += [Paragraph('Application-wise Capacity View',s['H1X']),Paragraph(summary.get('application_group_note','Application names are taken from the supplied dataset.'),s['BodyX']),Spacer(1,8)]
+ rows=[[Paragraph(x,s['CellW']) for x in ['Application','Recent workload','Recent performance','Scenario workload','Scenario performance','Status']]]
+ for r in a['application_table']:rows.append([Paragraph(str(r['application']),s['Cell']),Paragraph(fmt(r['requests_avg'],a['metrics']['service_request_count']['unit']),s['Cell']),Paragraph(fmt(r['response_avg'],a['metrics']['service_response_time']['unit']),s['Cell']),Paragraph(fmt(r['request_forecast'],a['metrics']['service_request_count']['unit']),s['Cell']),Paragraph(fmt(r['response_forecast'],a['metrics']['service_response_time']['unit']),s['Cell']),Paragraph(str(r['status']),s['Cell'])])
+ story += [table(rows,[1.55*inch,1.05*inch,1.15*inch,1.1*inch,1.15*inch,.75*inch]),PageBreak(),Paragraph('Workload Scenario & Capacity Impact',s['H1X']),Paragraph(f"Selected scenario: <b>{a['growth']:+.0f}%</b>. {summary.get('simulation_note','')}",s['BodyX']),Spacer(1,8)]
+ rows=[[Paragraph(x,s['CellW']) for x in ['Workload change','CPU','Memory','Disk','Performance']]]
+ for x in a['scenarios']:rows.append([Paragraph(f"{x['growth']:+.0f}%",s['Cell']),Paragraph(fmt(x.get('cpu'),'%'),s['Cell']),Paragraph(fmt(x.get('memory'),'%'),s['Cell']),Paragraph(fmt(x.get('disk'),'%'),s['Cell']),Paragraph(fmt(x.get('performance'),a['metrics']['service_response_time']['unit']),s['Cell'])])
+ story += [table(rows,[1.1*inch,1.05*inch,1.15*inch,1.05*inch,1.2*inch]),Spacer(1,14),Paragraph('Forecast Method',s['H2X']),Paragraph('The engine aggregates historical observations to daily values, interpolates missing points, limits extreme outliers, evaluates a recent-median model, Holt-Winters and trend regression on a holdout period, and selects the lowest-error model. Workload simulation uses regression only when the historical relationship is sufficiently supported; otherwise the baseline forecast is retained.',s['BodyX']),Spacer(1,8),Paragraph('Planning Recommendation',s['H2X']),Paragraph(a['recommendations'][0]['action'],s['BodyX'])]
  doc.build(story)
