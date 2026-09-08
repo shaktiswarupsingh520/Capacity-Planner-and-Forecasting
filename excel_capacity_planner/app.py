@@ -222,7 +222,6 @@ def mock_data():
     week = np.sin(2 * np.pi * t / 7)
     month = np.sin(2 * np.pi * t / 30.4)
     rows = []
-
     for ai, application in enumerate(MOCK_APPS):
         trend = 1 + ai * 0.025
         cpu = 35 + 0.018 * t + 4 * week + ai * 1.5 + rng.normal(0, 1.2, len(d))
@@ -236,57 +235,32 @@ def mock_data():
         if ai == 5:
             response += 9 + 0.012 * t
         for j, dt in enumerate(d):
-            rows.append(
-                {
-                    "timestamp": dt,
-                    "application": application,
-                    "cpu_pct": float(np.clip(cpu[j], 0, 100)),
-                    "memory_pct": float(np.clip(memory[j], 0, 100)),
-                    "disk_pct": float(np.clip(disk[j], 0, 100)),
-                    "network_bps": float(max(0, network[j])),
-                    "request_count": float(max(0, requests[j])),
-                    "response_time_ms": float(max(1, response[j])),
-                }
-            )
-
+            rows.append({
+                "timestamp": dt,
+                "application": application,
+                "cpu_pct": float(np.clip(cpu[j], 0, 100)),
+                "memory_pct": float(np.clip(memory[j], 0, 100)),
+                "disk_pct": float(np.clip(disk[j], 0, 100)),
+                "network_bps": float(max(0, network[j])),
+                "request_count": float(max(0, requests[j])),
+                "response_time_ms": float(max(1, response[j])),
+            })
     data = pd.DataFrame(rows)
     problems = mock_problems(data["timestamp"].min(), data["timestamp"].max(), data["application"].unique())
-    return {
-        "kind": "mock",
-        "management_zone": "CBDCE_RUPISwitch_1418",
-        "data": data,
-        "problems": problems,
-        "applications": MOCK_APPS,
-    }
+    return {"kind": "mock", "management_zone": "CBDCE_RUPISwitch_1418", "data": data, "problems": problems, "applications": MOCK_APPS}
 
 
 def mock_problems(start, end, applications):
     rng = np.random.default_rng(88)
     dates = pd.date_range(start, end, freq="7D", tz="UTC")
-    titles = [
-        "Low disk space",
-        "Multiple infrastructure problems",
-        "Failure rate increase",
-        "Response time degradation",
-        "SRE Availability Degradation",
-        "Multiple service problems",
-    ]
+    titles = ["Low disk space", "Multiple infrastructure problems", "Failure rate increase", "Response time degradation", "SRE Availability Degradation", "Multiple service problems"]
     severities = ["RESOURCE_CONTENTION", "AVAILABILITY", "AVAILABILITY", "PERFORMANCE", "CUSTOM_ALERT", "ERROR"]
     rows = []
     for i, dt in enumerate(dates):
         n = 1 + int(i % 4 == 0) + int(i % 6 == 0)
         for j in range(n):
             st = dt + pd.Timedelta(hours=int(rng.integers(0, 20)))
-            rows.append(
-                {
-                    "title": titles[(i + j) % len(titles)],
-                    "severity": severities[(i + j) % len(severities)],
-                    "status": "CLOSED",
-                    "startTime": st,
-                    "duration_min": int(rng.integers(20, 500)),
-                    "application": applications[(i + j) % len(applications)],
-                }
-            )
+            rows.append({"title": titles[(i + j) % len(titles)], "severity": severities[(i + j) % len(severities)], "status": "CLOSED", "startTime": st, "duration_min": int(rng.integers(20, 500)), "application": applications[(i + j) % len(applications)]})
     return pd.DataFrame(rows)
 
 
@@ -303,17 +277,7 @@ def connect_dynatrace(tenant, token):
     if not token.strip():
         raise ValueError("Dynatrace Access Token is required.")
     cfg = {"tenant": tenant, "token": token.strip()}
-    _dynatrace_get(
-        cfg,
-        "/api/v2/metrics/query",
-        params={
-            "metricSelector": "builtin:service.requestCount:sum",
-            "from": "now-5m",
-            "resolution": "Inf",
-            "entitySelector": 'type("SERVICE")',
-        },
-        timeout=20,
-    )
+    _dynatrace_get(cfg, "/api/v2/metrics/query", params={"metricSelector": "builtin:service.requestCount:sum", "from": "now-5m", "resolution": "Inf", "entitySelector": 'type("SERVICE")'}, timeout=20)
     source_id = f"dt-{uuid.uuid4().hex[:10]}"
     SOURCES[source_id] = {"kind": "dynatrace", "config": cfg}
     return source_id
@@ -329,14 +293,7 @@ def _metric_result_to_series(payload, application_prefix="Application"):
             application = dim_map.get("dt.entity.service") or (dims[0] if dims else application_prefix)
             for ts, value in zip(series.get("timestamps", []), series.get("values", [])):
                 if value is not None:
-                    rows.append(
-                        {
-                            "timestamp": pd.to_datetime(ts, unit="ms", utc=True),
-                            "application": application,
-                            "metric": metric_id,
-                            "value": float(value),
-                        }
-                    )
+                    rows.append({"timestamp": pd.to_datetime(ts, unit="ms", utc=True), "application": application, "metric": metric_id, "value": float(value)})
     return pd.DataFrame(rows)
 
 
@@ -344,64 +301,28 @@ def _live_data(cfg, management_zone, start, end):
     selector = 'type("SERVICE")'
     if management_zone:
         selector += f',mzName("{management_zone}")'
-
     from_value = pd.Timestamp(start).strftime("%Y-%m-%dT%H:%M:%SZ")
     to_value = (pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    service_selectors = {
-        "service_request_count": 'builtin:service.requestCount:sum:splitBy("dt.entity.service")',
-        "service_response_time": 'builtin:service.response.time:avg:splitBy("dt.entity.service")',
-    }
+    service_selectors = {"service_request_count": 'builtin:service.requestCount:sum:splitBy("dt.entity.service")', "service_response_time": 'builtin:service.response.time:avg:splitBy("dt.entity.service")'}
     service_frames = {}
     for key, metric_selector in service_selectors.items():
-        payload = _dynatrace_get(
-            cfg,
-            "/api/v2/metrics/query",
-            params={
-                "metricSelector": metric_selector,
-                "entitySelector": selector,
-                "from": from_value,
-                "to": to_value,
-                "resolution": "1h",
-            },
-        )
+        payload = _dynatrace_get(cfg, "/api/v2/metrics/query", params={"metricSelector": metric_selector, "entitySelector": selector, "from": from_value, "to": to_value, "resolution": "1h"})
         service_frames[key] = _metric_result_to_series(payload)
-
-    infra_selectors = {
-        "host_cpu_usage": "builtin:host.cpu.usage:avg",
-        "host_mem_usage": "builtin:host.mem.usage:avg",
-        "host_disk_used_pct": "builtin:host.disk.usedPct:avg",
-    }
+    infra_selectors = {"host_cpu_usage": "builtin:host.cpu.usage:avg", "host_mem_usage": "builtin:host.mem.usage:avg", "host_disk_used_pct": "builtin:host.disk.usedPct:avg"}
     infra = {}
     for key, metric_selector in infra_selectors.items():
-        payload = _dynatrace_get(
-            cfg,
-            "/api/v2/metrics/query",
-            params={
-                "metricSelector": metric_selector,
-                "mzSelector": f'mzName("{management_zone}")' if management_zone else None,
-                "from": from_value,
-                "to": to_value,
-                "resolution": "1h",
-            },
-        )
+        payload = _dynatrace_get(cfg, "/api/v2/metrics/query", params={"metricSelector": metric_selector, "mzSelector": f'mzName("{management_zone}")' if management_zone else None, "from": from_value, "to": to_value, "resolution": "1h"})
         frame = _metric_result_to_series(payload, management_zone or "Management Zone")
         if not frame.empty:
             frame = frame.groupby("timestamp", as_index=False)["value"].mean()
         infra[key] = frame
-
     req = service_frames["service_request_count"].rename(columns={"value": "request_count"})[["timestamp", "application", "request_count"]]
     resp = service_frames["service_response_time"].rename(columns={"value": "response_time_ms"})[["timestamp", "application", "response_time_ms"]]
     if not resp.empty and resp["response_time_ms"].median() > 10000:
         resp["response_time_ms"] = resp["response_time_ms"] / 1000.0
-
     perf = req.merge(resp, on=["timestamp", "application"], how="outer")
     perf["timestamp"] = perf["timestamp"].dt.floor("D")
-    perf = perf.groupby(["timestamp", "application"], as_index=False).agg(
-        request_count=("request_count", "sum"),
-        response_time_ms=("response_time_ms", "mean"),
-    )
-
+    perf = perf.groupby(["timestamp", "application"], as_index=False).agg(request_count=("request_count", "sum"), response_time_ms=("response_time_ms", "mean"))
     for key, frame in infra.items():
         if frame.empty:
             perf[key] = np.nan
@@ -409,18 +330,11 @@ def _live_data(cfg, management_zone, start, end):
         frame["timestamp"] = frame["timestamp"].dt.floor("D")
         frame = frame.groupby("timestamp", as_index=False)["value"].mean().rename(columns={"value": key})
         perf = perf.merge(frame, on="timestamp", how="left")
-
     perf["network_bps"] = np.nan
     problems = pd.DataFrame(columns=["title", "severity", "status", "startTime", "duration_min", "application"])
     if perf.empty:
         raise RuntimeError("No application/service telemetry was returned for the selected management zone and dates.")
-    return {
-        "kind": "dynatrace",
-        "management_zone": management_zone or "Dynatrace Management Zone",
-        "data": perf,
-        "problems": problems,
-        "applications": sorted(perf["application"].dropna().unique().tolist()),
-    }
+    return {"kind": "dynatrace", "management_zone": management_zone or "Dynatrace Management Zone", "data": perf, "problems": problems, "applications": sorted(perf["application"].dropna().unique().tolist())}
 
 
 def select_window(dataset, start, end):
@@ -438,9 +352,7 @@ def forecast(df, days):
         vals = np.repeat(s.iloc[-1], days)
     else:
         try:
-            vals = ExponentialSmoothing(
-                s, trend="add", seasonal="add", seasonal_periods=7, initialization_method="estimated"
-            ).fit(optimized=True).forecast(days).to_numpy()
+            vals = ExponentialSmoothing(s, trend="add", seasonal="add", seasonal_periods=7, initialization_method="estimated").fit(optimized=True).forecast(days).to_numpy()
         except Exception:
             vals = np.polyval(np.polyfit(np.arange(len(s)), s.to_numpy(), 1), np.arange(len(s), len(s) + days))
     resid = float(np.nanstd(np.diff(s.to_numpy()))) if len(s) > 2 else 0.1
@@ -452,8 +364,7 @@ def forecast(df, days):
 def trend(df):
     if df.empty:
         return {"mean": None, "start": None, "end": None, "change": None, "slope": None, "direction": "insufficient_data"}
-    x = np.arange(len(df))
-    y = df["value"].to_numpy()
+    x = np.arange(len(df)); y = df["value"].to_numpy()
     slope = float(np.polyfit(x, y, 1)[0]) if len(df) > 1 else 0
     a, b = float(y[0]), float(y[-1])
     change = (b - a) / abs(a) * 100 if a else 0
@@ -469,43 +380,23 @@ def application_table(data, days):
     rows = []
     if data.empty:
         return pd.DataFrame(columns=["application", "requests_avg", "response_avg", "request_forecast", "response_forecast", "status"])
-
     for application, group in data.groupby("application"):
-        req = group["request_count"].dropna()
-        resp = group["response_time_ms"].dropna()
-        req_avg = float(req.mean()) if len(req) else 0
-        resp_avg = float(resp.mean()) if len(resp) else 0
+        req = group["request_count"].dropna(); resp = group["response_time_ms"].dropna()
+        req_avg = float(req.mean()) if len(req) else 0; resp_avg = float(resp.mean()) if len(resp) else 0
         req_slope = np.polyfit(np.arange(len(req)), req.to_numpy(), 1)[0] if len(req) > 2 else 0
         resp_slope = np.polyfit(np.arange(len(resp)), resp.to_numpy(), 1)[0] if len(resp) > 2 else 0
         req_fc = max(0, req.iloc[-1] + req_slope * days) if len(req) else 0
         resp_fc = max(0, resp.iloc[-1] + resp_slope * days) if len(resp) else 0
         risk = "At Risk" if resp_fc >= 500 else ("Watch" if resp_fc >= 250 else "Normal")
-        rows.append({
-            "application": str(application),
-            "requests_avg": req_avg,
-            "response_avg": resp_avg,
-            "request_forecast": float(req_fc),
-            "response_forecast": float(resp_fc),
-            "status": risk,
-        })
+        rows.append({"application": str(application), "requests_avg": req_avg, "response_avg": resp_avg, "request_forecast": float(req_fc), "response_forecast": float(resp_fc), "status": risk})
     return pd.DataFrame(rows).sort_values("requests_avg", ascending=False)
 
 
 def build_analysis(dataset, start, end, months, growth):
     data = select_window(dataset, start, end)
     days = max(1, int(months) * 30)
-    metrics = {}
-    trends = {}
-    forecasts = {}
-    metric_columns = {
-        "host_cpu_usage": "cpu_pct",
-        "host_mem_usage": "memory_pct",
-        "host_disk_used_pct": "disk_pct",
-        "network_traffic": "network_bps",
-        "service_request_count": "request_count",
-        "service_response_time": "response_time_ms",
-    }
-
+    metrics = {}; trends = {}; forecasts = {}
+    metric_columns = {"host_cpu_usage": "cpu_pct", "host_mem_usage": "memory_pct", "host_disk_used_pct": "disk_pct", "network_traffic": "network_bps", "service_request_count": "request_count", "service_response_time": "response_time_ms"}
     for key, (label, category, unit, _) in METRICS.items():
         column = metric_columns[key]
         if column not in data.columns:
@@ -513,31 +404,13 @@ def build_analysis(dataset, start, end, months, growth):
         else:
             df = data[["timestamp", column]].rename(columns={column: "value"}).dropna()
         df = df.groupby("timestamp", as_index=False)["value"].mean() if not df.empty else df
-        f = forecast(df, days)
-        trends[key] = trend(df)
-        forecasts[key] = f
-        metrics[key] = {
-            "label": label,
-            "category": category,
-            "unit": unit,
-            "cap": 100 if key in ("host_cpu_usage", "host_mem_usage", "host_disk_used_pct") else None,
-            "historical": to_points(df, "value"),
-            "forecast": to_points(f, "forecast"),
-            "lower": to_points(f, "lower"),
-            "upper": to_points(f, "upper"),
-        }
-
+        f = forecast(df, days); trends[key] = trend(df); forecasts[key] = f
+        metrics[key] = {"label": label, "category": category, "unit": unit, "cap": 100 if key in ("host_cpu_usage", "host_mem_usage", "host_disk_used_pct") else None, "historical": to_points(df, "value"), "forecast": to_points(f, "forecast"), "lower": to_points(f, "lower"), "upper": to_points(f, "upper")}
     base = float(data["request_count"].mean()) if not data.empty and "request_count" in data else None
-    app_table = application_table(data, days)
-    sf = 1 + float(growth) / 100
-
+    app_table = application_table(data, days); sf = 1 + float(growth) / 100
     for key, metric in metrics.items():
         elasticity = 1.15 if key == "service_response_time" else 1
-        metric["simulated_forecast"] = [
-            {"t": p["t"], "v": min(metric["cap"], p["v"] * sf**elasticity) if metric["cap"] else p["v"] * sf**elasticity}
-            for p in metric["forecast"]
-        ]
-
+        metric["simulated_forecast"] = [{"t": p["t"], "v": min(metric["cap"], p["v"] * sf**elasticity) if metric["cap"] else p["v"] * sf**elasticity} for p in metric["forecast"]]
     scenarios = []
     cpu_peak = float(metrics["host_cpu_usage"]["forecast"][-1]["v"]) if metrics["host_cpu_usage"]["forecast"] else 0
     mem_peak = float(metrics["host_mem_usage"]["forecast"][-1]["v"]) if metrics["host_mem_usage"]["forecast"] else 0
@@ -545,33 +418,8 @@ def build_analysis(dataset, start, end, months, growth):
     for scenario_growth in [-20, 0, 10, 25, 50]:
         factor = 1 + scenario_growth / 100
         scenarios.append({"growth": scenario_growth, "cpu": min(100, cpu_peak * factor), "memory": min(100, mem_peak * factor), "disk": min(100, disk_peak * factor)})
-
-    recommendations = [
-        {"application": row.application, "risk": row.status, "action": "Review request growth and response-time headroom before the next planning cycle."}
-        for row in app_table.itertuples() if row.status != "Normal"
-    ]
-
-    return {
-        "management_zone": dataset["management_zone"],
-        "summary": {
-            "from": str(pd.Timestamp(start).date()),
-            "to": str(pd.Timestamp(end).date()),
-            "applications": int(data["application"].nunique()) if not data.empty else 0,
-            "rows": int(len(data)),
-            "problems": int(len(dataset["problems"])),
-            "baseline_requests": base,
-            "forecast_days": days,
-            "data_source": dataset["kind"],
-        },
-        "metrics": metrics,
-        "application_table": app_table.to_dict("records"),
-        "trends": trends,
-        "forecasts": forecasts,
-        "problems": dataset["problems"],
-        "scenarios": scenarios,
-        "recommendations": recommendations,
-        "growth": float(growth),
-    }
+    recommendations = [{"application": row.application, "risk": row.status, "action": "Review request growth and response-time headroom before the next planning cycle."} for row in app_table.itertuples() if row.status != "Normal"]
+    return {"management_zone": dataset["management_zone"], "summary": {"from": str(pd.Timestamp(start).date()), "to": str(pd.Timestamp(end).date()), "applications": int(data["application"].nunique()) if not data.empty else 0, "rows": int(len(data)), "problems": int(len(dataset["problems"])), "baseline_requests": base, "forecast_days": days, "data_source": dataset["kind"]}, "metrics": metrics, "application_table": app_table.to_dict("records"), "trends": trends, "forecasts": forecasts, "problems": dataset["problems"], "scenarios": scenarios, "recommendations": recommendations, "growth": float(growth)}
 
 
 def get_analysis(source_id, management_zone, start, end, months, growth):
@@ -588,40 +436,38 @@ def get_analysis(source_id, management_zone, start, end, months, growth):
 
 
 def build_mock_workbook():
-    dataset = mock_data()
-    data = dataset["data"].copy()
-    out = io.BytesIO()
+    dataset = mock_data(); data = dataset["data"].copy(); out = io.BytesIO()
     telemetry = data[["timestamp", "application", "cpu_pct", "memory_pct", "disk_pct", "network_bps"]].copy()
     performance = data[["timestamp", "application", "request_count", "response_time_ms"]].copy()
     problems = dataset["problems"].copy()
-    data_dictionary = pd.DataFrame(
-        [
-            ["Application Telemetry", "timestamp", "ISO/date-time", "Observation timestamp"],
-            ["Application Telemetry", "application", "Text", "Application/service name; this is the business/application dimension used by the UI"],
-            ["Application Telemetry", "cpu_pct", "Number", "Application-associated CPU utilization percentage"],
-            ["Application Telemetry", "memory_pct", "Number", "Application-associated memory utilization percentage"],
-            ["Application Telemetry", "disk_pct", "Number", "Application-associated disk utilization percentage"],
-            ["Application Telemetry", "network_bps", "Number", "Network traffic in bytes per second"],
-            ["Performance Metrics", "timestamp", "ISO/date-time", "Observation timestamp"],
-            ["Performance Metrics", "application", "Text", "Application/service name"],
-            ["Performance Metrics", "request_count", "Number", "Total requests for the application in the interval"],
-            ["Performance Metrics", "response_time_ms", "Number", "Average response time in milliseconds"],
-            ["Problems", "application", "Text", "Application related to the problem"],
-            ["Problems", "title", "Text", "Problem title"],
-            ["Problems", "severity", "Text", "Problem severity/category"],
-            ["Problems", "status", "Text", "Problem status"],
-            ["Problems", "startTime", "ISO/date-time", "Problem start time"],
-            ["Problems", "duration_min", "Number", "Problem duration in minutes"],
-        ],
-        columns=["Sheet", "Column", "Type", "Description"],
-    )
+    telemetry["timestamp"] = telemetry["timestamp"].dt.tz_localize(None)
+    performance["timestamp"] = performance["timestamp"].dt.tz_localize(None)
+    if "startTime" in problems.columns:
+        problems["startTime"] = pd.to_datetime(problems["startTime"], utc=True).dt.tz_localize(None)
+    data_dictionary = pd.DataFrame([
+        ["Application Telemetry", "timestamp", "ISO/date-time", "Observation timestamp"],
+        ["Application Telemetry", "application", "Text", "Application/service name; this is the business/application dimension used by the UI"],
+        ["Application Telemetry", "cpu_pct", "Number", "Application-associated CPU utilization percentage"],
+        ["Application Telemetry", "memory_pct", "Number", "Application-associated memory utilization percentage"],
+        ["Application Telemetry", "disk_pct", "Number", "Application-associated disk utilization percentage"],
+        ["Application Telemetry", "network_bps", "Number", "Network traffic in bytes per second"],
+        ["Performance Metrics", "timestamp", "ISO/date-time", "Observation timestamp"],
+        ["Performance Metrics", "application", "Text", "Application/service name"],
+        ["Performance Metrics", "request_count", "Number", "Total requests for the application in the interval"],
+        ["Performance Metrics", "response_time_ms", "Number", "Average response time in milliseconds"],
+        ["Problems", "application", "Text", "Application related to the problem"],
+        ["Problems", "title", "Text", "Problem title"],
+        ["Problems", "severity", "Text", "Problem severity/category"],
+        ["Problems", "status", "Text", "Problem status"],
+        ["Problems", "startTime", "ISO/date-time", "Problem start time"],
+        ["Problems", "duration_min", "Number", "Problem duration in minutes"],
+    ], columns=["Sheet", "Column", "Type", "Description"])
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         telemetry.to_excel(writer, index=False, sheet_name="Application Telemetry")
         performance.to_excel(writer, index=False, sheet_name="Performance Metrics")
         problems.to_excel(writer, index=False, sheet_name="Problems")
         data_dictionary.to_excel(writer, index=False, sheet_name="Data Dictionary")
-    out.seek(0)
-    return out
+    out.seek(0); return out
 
 
 @app.route("/")
@@ -666,9 +512,7 @@ def api_upload_excel():
 
 @app.get("/api/management-zones")
 def zones():
-    q = (request.args.get("q") or "").strip().lower()
-    source_id = request.args.get("source_id", "")
-    source = SOURCES.get(source_id)
+    q = (request.args.get("q") or "").strip().lower(); source_id = request.args.get("source_id", ""); source = SOURCES.get(source_id)
     if source and source["kind"] == "dynatrace":
         try:
             payload = _dynatrace_get(source["config"], "/api/config/v1/managementZones", params={"pageSize": 100})
