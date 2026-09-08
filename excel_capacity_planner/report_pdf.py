@@ -47,7 +47,7 @@ def build_pdf_report(path,company,title,a):
  for r in a["application_table"]:rows.append([Paragraph(str(r["application"]),s["Cell"]),Paragraph(fmt(r["requests_avg"],"Rate"),s["Cell"]),Paragraph(fmt(r["response_avg"],"Count"),s["Cell"]),Paragraph(fmt(r["request_forecast"],"Rate"),s["Cell"]),Paragraph(fmt(r["response_forecast"],"Count"),s["Cell"]),Paragraph(str(r["status"]),s["Cell"])])
  story += [table(rows,[1.5*inch,1*inch,1*inch,1.1*inch,1.15*inch,.75*inch]),PageBreak(),Paragraph("Workload & JVM Metrics",s["H1X"])]
  for k in ["service_request_count","service_response_time"]:
-  m,t=a["metrics"][k];tmp=f"/tmp/{os.path.basename(path)}_{k}.png"
+  m=a["metrics"][k];t=a["trends"][k];tmp=f"/tmp/{os.path.basename(path)}_{k}.png"
   if m["historical"]:chart(m,tmp);story += [Paragraph(m["label"],s["H2X"]),Image(tmp,width=6.5*inch,height=2.4*inch),Paragraph(f"Average {fmt(t['mean'],m['unit'])}; current {fmt(t['end'],m['unit'])}. Forecast model: <b>{m.get('model',{}).get('model','N/A')}</b>, confidence {m.get('model',{}).get('confidence','N/A')}.",s["BodyX"])]
   else:story += [Paragraph(m["label"],s["H2X"]),Paragraph("No data was supplied.",s["BodyX"])]
  story.append(PageBreak());story += [Paragraph("Problem Correlation Analysis",s["H1X"]),Paragraph("No problem records were included in the uploaded ZIP export.",s["BodyX"]),PageBreak()]
