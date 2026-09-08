@@ -13,6 +13,7 @@
   const uploadBtn = $('uploadBtn');
   const uploadStatus = $('uploadStatus');
   const zoneSearch = $('zoneSearch');
+  const zoneSearchWrap = $('zoneSearchWrap');
   const zoneResults = $('zoneResults');
   const selectedZone = $('selectedZone');
   const zoneName = $('selectedZoneName');
@@ -56,7 +57,8 @@
     const value = source.value;
     dtConfig.hidden = value !== 'live';
     excelConfig.hidden = value !== 'excel';
-    zoneSearch.hidden = value !== 'live';
+    zoneSearchWrap.hidden = value !== 'live';
+    zoneSearch.hidden = false;
     zoneResults.innerHTML = '';
     selectedZone.hidden = value !== 'live';
     applicationSelect.innerHTML = '<option value="">Select an application...</option>';
@@ -95,11 +97,7 @@
   function loadApplications() {
     if (!sourceId) return;
     const params = new URLSearchParams({source_id: sourceId});
-    if (currentZone) {
-      params.set('management_zone', currentZone);
-      params.set('hist_from', from.value);
-      params.set('hist_to', to.value);
-    }
+    if (currentZone) { params.set('management_zone', currentZone); params.set('hist_from', from.value); params.set('hist_to', to.value); }
     apiJson('/api/applications?' + params.toString()).then(data => populateApplications(data.applications)).catch(e => status.textContent = e.message);
   }
 
