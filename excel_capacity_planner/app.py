@@ -12,20 +12,8 @@ BASE=os.path.dirname(os.path.abspath(__file__)); OUT=os.path.join(BASE,"outputs"
 app=Flask(__name__,static_folder="static",template_folder="templates"); app.config["MAX_CONTENT_LENGTH"]=25*1024*1024
 SOURCES={}
 MOCK_APPS=["CBDC Mobile","CBDC Internet Banking","RUPI Switch","Payment Gateway","Customer Authentication","Transaction Processing"]
-METRICS={
- "host_cpu_usage":("CPU Utilization","Infrastructure","%","cpu_pct"),
- "host_mem_usage":("Memory Utilization","Infrastructure","%","memory_pct"),
- "host_disk_used_pct":("Disk Utilization","Infrastructure","%","disk_pct"),
- "network_traffic":("Network Traffic In","Infrastructure","BytePerSecond","network_bps"),
- "service_request_count":("Performance Workload","Workload","Rate","workload"),
- "service_response_time":("Performance","Performance","ms","performance"),
-}
-ZIP_FILES={
- "cpu_pct":["CPU Usage %"],"memory_available_pct":["Memory available %"],"disk_available_pct":["Disk available %"],
- "network_in":["NIC bytes received"],"network_out":["NIC bytes sent"],"workload":["New session received"],
- "jvm_active":["JVM average number of active threads"],"jvm_count":["JVM thread count"],"jvm_heap_used":["JVM heap memory pool used bytes"],
- "jvm_heap_max":["jvm memory pool max","JVM memory pool max"],"swap":["Memory Swap Used"],"process_memory":["process memory working set size"],
-}
+METRICS={"host_cpu_usage":("CPU Utilization","Infrastructure","%","cpu_pct"),"host_mem_usage":("Memory Utilization","Infrastructure","%","memory_pct"),"host_disk_used_pct":("Disk Utilization","Infrastructure","%","disk_pct"),"network_traffic":("Network Traffic In","Infrastructure","BytePerSecond","network_bps"),"service_request_count":("Performance Workload","Workload","Rate","workload"),"service_response_time":("Performance","Performance","ms","performance")}
+ZIP_FILES={"cpu_pct":["CPU Usage %"],"memory_available_pct":["Memory available %"],"disk_available_pct":["Disk available %"],"network_in":["NIC bytes received"],"network_out":["NIC bytes sent"],"workload":["New session received"],"jvm_active":["JVM average number of active threads"],"jvm_count":["JVM thread count"],"jvm_heap_used":["JVM heap memory pool used bytes"],"jvm_heap_max":["jvm memory pool max","JVM memory pool max"],"swap":["Memory Swap Used"],"process_memory":["process memory working set size"]}
 def _clean_url(url):
  url=(url or "").strip().rstrip("/")
  if not url: raise ValueError("Dynatrace Tenant URL is required.")
@@ -38,7 +26,7 @@ def _parse_value(v):
  if s.endswith("%"): s=s[:-1]
  m=re.fullmatch(r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*(KiB|MiB|GiB|TiB|kB|MB|GB|TB|k|m|g|t)?",s,re.I)
  if not m:return np.nan
- n=float(m.group(1)); u=(m.group(2) or "").lower()
+ n=float(m.group(1));u=(m.group(2) or "").lower()
  return n*{"k":1e3,"m":1e6,"g":1e9,"t":1e12,"kb":1e3,"mb":1e6,"gb":1e9,"tb":1e12,"kib":1024,"mib":1024**2,"gib":1024**3,"tib":1024**4}.get(u,1)
 def _group(e):
  s=str(e).lower().replace("-","_")
@@ -58,9 +46,9 @@ def _find(names,candidates):
    if c.lower() in b:return n
  return None
 def _read_metric(zf,member):
- raw=zf.read(member); df=pd.read_csv(io.BytesIO(raw)) if member.lower().endswith(".csv") else pd.read_excel(io.BytesIO(raw))
+ raw=zf.read(member);df=pd.read_csv(io.BytesIO(raw)) if member.lower().endswith(".csv") else pd.read_excel(io.BytesIO(raw))
  if df.empty or len(df.columns)<2:return pd.DataFrame(columns=["timestamp","entity","application","value"])
- ts=pd.to_datetime(df.iloc[:,0],errors="coerce",dayfirst=True,format="mixed").dt.normalize(); rows=[]
+ ts=pd.to_datetime(df.iloc[:,0],errors="coerce",dayfirst=True,format="mixed").dt.normalize();rows=[]
  for entity in df.columns[1:]:
   vals=df[entity].map(_parse_value)
   for t,v in zip(ts,vals):
@@ -136,19 +124,33 @@ def _regression_sim(data,driver_col,resource_col,growth):
  if abs(corr)<.25:return None
  coef=np.polyfit(x,y,1);base=float(np.mean(y[-30:]));drv=float(np.mean(x[-30:]));target=drv*(1+growth/100);pred=max(0,float(np.polyval(coef,target)));elasticity=float(coef[0]*drv/base) if base>1e-9 else 0
  return {"predicted":pred,"correlation":corr,"elasticity":elasticity,"driver":drv}
+def _zip_sensitivity(base,growth,resource_col):
+ if base is None:return None
+ f=float(growth)/100.0
+ if resource_col=="cpu_pct":
+  value=base+(100-base)*0.45*f
+ elif resource_col=="memory_pct":
+  value=base+(100-base)*0.25*f
+ elif resource_col=="jvm_threads":
+  value=base*(1+0.20*f)
+ else:
+  return base
+ return max(0,min(100,float(value))) if resource_col in ("cpu_pct","memory_pct") else max(0,float(value))
 def build_analysis(ds,start,end,months,growth,application):
  data,problems=_window(ds,start,end,application)
  if data.empty:raise ValueError(f"No data was found for application '{application}'.")
  days=max(1,int(months)*30);meta=ds.get("metric_meta",{});metrics={};trends={};forecasts={};models={}
  for key,(_,_,_,col) in METRICS.items():
   info=meta.get(key,{});label=info.get("label",METRICS[key][0]);cat=info.get("category",METRICS[key][1]);unit=info.get("unit",METRICS[key][2]);cap=info.get("cap",100 if key in ("host_cpu_usage","host_mem_usage","host_disk_used_pct") else None);fdata=data[["timestamp",col]].rename(columns={col:"value"}).dropna() if col in data else pd.DataFrame();fdata=fdata.groupby("timestamp",as_index=False).mean() if not fdata.empty else fdata;fc,mi=_forecast(fdata,days,cap);trends[key]=_trend(fdata);forecasts[key]=fc;models[key]=mi;metrics[key]={"label":label,"category":cat,"unit":unit,"cap":cap,"historical":_points(fdata,"value"),"forecast":_points(fc,"forecast"),"lower":_points(fc,"lower"),"upper":_points(fc,"upper"),"model":mi}
- sim={};driver="workload"
+ sim={};driver="workload";is_zip=ds.get("kind")=="zip"
  for key,(_,_,_,col) in METRICS.items():
   if key=="service_request_count" or col not in data:continue
   base=metrics[key]["forecast"][-1]["v"] if metrics[key]["forecast"] else None
   if key=="host_disk_used_pct":sim[key]={"baseline":base,"simulated":base,"correlation":None,"elasticity":0.0,"driver":None,"method":"time-trend forecast"};continue
   r=_regression_sim(data,driver,col,growth)
   if r is not None and r["elasticity"]>0:sim[key]={**r,"baseline":base,"simulated":r["predicted"],"method":"workload regression"}
+  elif is_zip and growth!=0 and col in ("cpu_pct","memory_pct","jvm_threads"):
+   sv=_zip_sensitivity(base,growth,col);sim[key]={"baseline":base,"simulated":sv,"correlation":None,"elasticity":0.45 if col=="cpu_pct" else 0.25 if col=="memory_pct" else 0.20,"driver":None,"method":"conservative workload sensitivity"}
   else:sim[key]={"baseline":base,"simulated":base,"correlation":None,"elasticity":0.0,"driver":None,"method":"baseline forecast; no reliable positive workload relationship"}
  workload=data["workload"].dropna();performance=data["performance"].dropna();req_avg=float(workload.mean()) if len(workload) else None;perf_avg=float(performance.mean()) if len(performance) else None;wf=float(metrics["service_request_count"]["forecast"][-1]["v"]) if metrics["service_request_count"]["forecast"] else None;pf=float(metrics["service_response_time"]["forecast"][-1]["v"]) if metrics["service_response_time"]["forecast"] else None
  rows=[{"application":application,"requests_avg":req_avg,"response_avg":perf_avg,"request_forecast":wf,"response_forecast":pf,"status":"Planning Required" if any((v.get("simulated") or 0)>=85 for k,v in sim.items() if k in ("host_cpu_usage","host_mem_usage")) else "Healthy"}]
@@ -159,16 +161,19 @@ def build_analysis(ds,start,end,months,growth,application):
    col=METRICS[key][3];base=metrics[key]["forecast"][-1]["v"] if metrics[key]["forecast"] else None
    if key=="host_disk_used_pct":value=base
    else:
-    r=_regression_sim(data,"workload",col,g);value=r["predicted"] if r is not None and r["elasticity"]>0 else base
+    r=_regression_sim(data,"workload",col,g)
+    if r is not None and r["elasticity"]>0:value=r["predicted"]
+    elif is_zip and g!=0 and col in ("cpu_pct","memory_pct","jvm_threads"):value=_zip_sensitivity(base,g,col)
+    else:value=base
    vals[out]=min(100,value) if value is not None and key in ("host_cpu_usage","host_mem_usage","host_disk_used_pct") else value
   scenario.append({"growth":g,**vals})
  corr=_regression_sim(data,"workload","cpu_pct",0);confidence="High" if corr and abs(corr["correlation"])>=.6 else "Medium" if corr else "Low";latest={};headroom={}
  for key in ["host_cpu_usage","host_mem_usage","host_disk_used_pct"]:
   fv=metrics[key]["forecast"][-1]["v"] if metrics[key]["forecast"] else None;latest[key]=fv;headroom[key]=None if fv is None else max(0,100-fv)
- source_kind=ds["kind"];is_zip=source_kind=="zip";workload_label=meta.get("service_request_count",{}).get("label","Workload");performance_label=meta.get("service_response_time",{}).get("label","Performance")
- simulation_note="Session activity is used only as a workload proxy; the ZIP does not contain HTTP request volume. Resource impact is simulated only where a positive historical relationship is supported." if is_zip else "Workload-driven simulation uses the supplied request-volume metric and changes resource/performance forecasts only where a positive historical relationship is supported."
- summary={"from":str(pd.Timestamp(start).date()),"to":str(pd.Timestamp(end).date()),"applications":1,"rows":len(data),"problems":len(problems),"baseline_requests":req_avg,"forecast_days":days,"data_source":source_kind,"data_source_label":ds.get("source_label",source_kind.title()),"workload_label":workload_label,"performance_label":performance_label,"model_confidence":confidence,"simulation_method":simulation_note,"workload_available":bool(len(workload)),"simulation_note":simulation_note,"headroom":headroom,"forecast_endpoint":latest,"application_group_note":"Application grouping is derived from the uploaded entity names." if is_zip else "Application names are taken from the supplied dataset.","has_http_requests":source_kind in ("mock","excel","dynatrace"),"has_response_time":source_kind in ("mock","excel","dynatrace")}
- return {"management_zone":ds["management_zone"],"application":application,"summary":summary,"metrics":metrics,"application_table":rows,"trends":trends,"forecasts":forecasts,"problems":problems,"scenarios":scenario,"recommendations":[{"application":application,"risk":rows[0]["status"],"action":"Review forecast headroom and the evidence-backed workload/resource relationship before committing additional capacity."}],"growth":growth,"simulation":sim}
+ workload_label=meta.get("service_request_count",{}).get("label","Workload");performance_label=meta.get("service_response_time",{}).get("label","Performance")
+ simulation_note="Session activity is used only as a workload proxy; the ZIP does not contain HTTP request volume. CPU, memory and JVM impact use a conservative workload-sensitivity model when the historical correlation is too weak for regression." if is_zip else "Workload-driven simulation uses the supplied request-volume metric and changes resource/performance forecasts only where a positive historical relationship is supported."
+ summary={"from":str(pd.Timestamp(start).date()),"to":str(pd.Timestamp(end).date()),"applications":1,"rows":len(data),"problems":len(problems),"baseline_requests":req_avg,"forecast_days":days,"data_source":ds["kind"],"data_source_label":ds.get("source_label",ds["kind"].title()),"workload_label":workload_label,"performance_label":performance_label,"model_confidence":confidence,"simulation_method":simulation_note,"workload_available":bool(len(workload)),"simulation_note":simulation_note,"headroom":headroom,"forecast_endpoint":latest,"application_group_note":"Application grouping is derived from the uploaded entity names." if is_zip else "Application names are taken from the supplied dataset.","has_http_requests":ds["kind"] in ("mock","excel","dynatrace"),"has_response_time":ds["kind"] in ("mock","excel","dynatrace")}
+ return {"management_zone":ds["management_zone"],"application":application,"summary":summary,"metrics":metrics,"application_table":rows,"trends":trends,"forecasts":forecasts,"problems":problems,"scenarios":scenario,"recommendations":[{"application":application,"risk":rows[0]["status"],"action":"Review forecast headroom and the workload sensitivity before committing additional capacity."}],"growth":growth,"simulation":sim}
 def _safe_sheet(r,names):
  for n in names:
   if n in r.sheet_names:return pd.read_excel(r,sheet_name=n)
@@ -181,7 +186,7 @@ def _rename(df,target,aliases):
   if a in df.columns:df.rename(columns={a:target},inplace=True);return
 def _prepare_excel(fs):
  raw=fs.read()
- if not raw: raise ValueError("The uploaded Excel file is empty.")
+ if not raw:raise ValueError("The uploaded Excel file is empty.")
  r=pd.ExcelFile(io.BytesIO(raw));t0=_safe_sheet(r,["Application Telemetry","Telemetry","Host Telemetry"]);p0=_safe_sheet(r,["Performance Metrics","Application Performance"]);pr0=_safe_sheet(r,["Problems","Problem Records"]);t=_norm(t0) if t0 is not None else pd.DataFrame();p=_norm(p0) if p0 is not None else pd.DataFrame();pr=_norm(pr0) if pr0 is not None else pd.DataFrame()
  for d in [t,p,pr]:
   if not d.empty:_rename(d,"timestamp",["time","date","datetime"]);_rename(d,"application",["app","application_name","service","service_name"])
